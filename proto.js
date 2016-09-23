@@ -10,9 +10,6 @@ const SEVEN = 1 << 10;
 const EIGHT = 1 << 11;
 const NINE = 1 << 12;
 
-// console.log(ONE, TWO, THREE, FOUR, FIVE)
-// console.log(SIX, SEVEN, EIGHT, NINE)
-
 const ALL = ONE | TWO | THREE | FOUR | FIVE | SIX | SEVEN | EIGHT | NINE;
 
 const emptyPuzzle = [
@@ -145,8 +142,6 @@ function isSolved(puzzle) {
 function checkConsistency(puzzle) {
   return puzzle.reduce((b, values, row) => {
     return values.reduce((b, value, col) => {
-      if (value === 0)
-        console.log(row, col, value);
       return b && (value > 0);
     }, b);
   }, true);
@@ -218,28 +213,24 @@ function getAllHouses(puzzle) {
   };
 }
 
-// TODO: right now this is a helper, but...
-// could all other commands "reduce" into just modify cell commands?
-function modifyCell(newValue) {
-  if (newValue === 0)
-    throw new Error('tried to set value to 0');
+// this is a helper to keep the puzzle immutable
+// by nature of setting values, it cannot be executed out of order
+// unlike assign/removeMarks, it cannot be a command
+function modifyCell(newValue, row, col, puzzle) {
+  if (newValue === 0) {
+    throw new Error(['tried to set 0', row, col, newValue, puzzle[row][col]].join(', '));
+  }
 
-  return function(row, col) {
-    return function(puzzle) {
-      if (puzzle[row][col] === newValue) {
-        return puzzle;
-      }
+  if (puzzle[row][col] === newValue) {
+    return puzzle;
+  }
 
-      return puzzle.map((values, r) => {
-        return values.map((oldValue, c) => {
-          if (newValue === 0)
-            throw new Error(['modify', row, col, newValue, oldValue].join(', '));
+  return puzzle.map((values, r) => {
+    return values.map((oldValue, c) => {
 
-          return r == row && c == col ? newValue : oldValue;
-        });
-      });
-    };
-  };
+      return r == row && c == col ? newValue : oldValue;
+    });
+  });
 }
 
 // Commands
@@ -254,8 +245,7 @@ function assign(value) {
   return function(row, col) {
     return function(puzzle) {
       // will erase all pencil marks as well
-      // console.log('assign ', value, row, col);
-      const changedPuzzle = modifyCell(value)(row, col)(puzzle);
+      const changedPuzzle = modifyCell(value, row, col, puzzle);
 
       const mark = valueToMark(value);
       const removedAssignedMark = removeMarks(mark);
@@ -286,12 +276,11 @@ function removeMarks(marksToRemove) {
   return function(row, col) {
     return function(puzzle) {
       // erases pencil marks if it exists, otherwise nothing happens
-      const newValue = puzzle[row][col] & (~marksToRemove);
-      if (newValue === 0) {
-        console.log(row, col, puzzle[row][col], marksToRemove, ~marksToRemove);
-      }
+      const inverseMarks = ~marksToRemove;
+      const safeInverseMarks = (inverseMarks | 0xF) & 0xFFFF;
 
-      return modifyCell(newValue)(row, col)(puzzle);
+      const newValue = puzzle[row][col] & safeInverseMarks;
+      return modifyCell(newValue, row, col, puzzle);
     }
   }
 }
@@ -324,10 +313,9 @@ function removeMarks(marksToRemove) {
     Only N-number of cells in a house contain the same N-length subset of pencil marks.
     In this case, all other marks in these N cells may be removed
     Find the common subset between N-length combinations (use bitwise AND)
-    If the length of the subset is equal to N
-      Then Find any other cell contains any subset of that subset (c & s1 == 0)
-      If no cell was found with any subset of that subset, then all cells in the combination
-      may set the marks to the subset
+    Determine the unique portion of that subset (using bitwise AND, NEG the other cell)
+    If the length of the unique subset is equal to N
+      then all cells in the combination may set the marks in the unique subset
 
   - Omissions:
     If a block-house can prove a number must be in a row or col,
@@ -393,99 +381,6 @@ function loneSingle(puzzle) {
   }, []);
 }
 
-// generates a "map" for value to cells
-function houseNumberMaps(house) {
-  // TODO: this could be done more immutable-y, but this fn may go away
-  // the Hidden-N algorithm does not rely on mappings being generated
-  var mapping = [[], [], [], [], [], [], [], [], []];
-  house.forEach((value, index) => {
-    if ((value & ONE) === ONE) {
-      mapping[0].push(index);
-    }
-    if ((value & TWO) === TWO) {
-      mapping[1].push(index);
-    }
-    if ((value & THREE) === THREE) {
-      mapping[2].push(index);
-    }
-    if ((value & FOUR) === FOUR) {
-      mapping[3].push(index);
-    }
-    if ((value & FIVE) === FIVE) {
-      mapping[4].push(index);
-    }
-    if ((value & SIX) === SIX) {
-      mapping[5].push(index);
-    }
-    if ((value & SEVEN) === SEVEN) {
-      mapping[6].push(index);
-    }
-    if ((value & EIGHT) === EIGHT) {
-      mapping[7].push(index);
-    }
-    if ((value & NINE) === NINE) {
-      mapping[8].push(index);
-    }
-  });
-  return mapping;
-}
-
-function hiddenSingle(puzzle) {
-  /*
-  a hidden single is when a house contains a cell
-  which that cell is the only one with a specific number
-
-  take a house
-  create an mapping of which values point to which numbers
-  really... this needs to be re-used, because hiddenPair/Triple/etc need it
-
-  if only one cell exists for a number, assign it
-  */
-  const houses = getAllHouses(puzzle);
-
-  const bCommands = houses.blocks.reduce((commands, house, block) => {
-    const mapping = houseNumberMaps(house);
-
-    return mapping.reduce((commands, values, num) => {
-      if (values.length !== 1) {
-        return commands;
-      }
-
-      const index = values[0];
-      const [row, col] = blockIndexToRowCol(block, index);
-      return commands.concat(assign(num+1)(row, col));
-    }, commands);
-  }, []);
-
-  const brCommands = houses.rows.reduce((commands, house, row) => {
-    const mapping = houseNumberMaps(house);
-
-    return mapping.reduce((commands, values, num) => {
-      if (values.length !== 1) {
-        return commands;
-      }
-
-      const col = values[0];
-      return commands.concat(assign(num+1)(row, col));
-    }, commands);
-  }, []);
-
-  const brcCommands = houses.cols.reduce((commands, house, col) => {
-    const mapping = houseNumberMaps(house);
-
-    return mapping.reduce((commands, values, num) => {
-      if (values.length !== 1) {
-        return commands;
-      }
-
-      const row = values[0];
-      return commands.concat(assign(num+1)(row, col));
-    }, commands);
-  }, []);
-
-  return bCommands.concat(brCommands).concat(brcCommands);
-}
-
 function generateCombinations(n, house) {
   if (n === 0) {
     return [[]];
@@ -495,10 +390,6 @@ function generateCombinations(n, house) {
     (v, x) => generateCombinations(n-1, house.slice(x+1)).map(i => [v].concat(i))
   ).reduce((a, v) => a.concat(v), []);
 }
-
-// function getCombinationSubsets(n, house) {
-//   return generateCombinations(n, house).map(c => c.reduce((p, v) => p & v, ALL));
-// }
 
 function commandForRowCol(row) {
   return function(col) {
@@ -544,24 +435,11 @@ function hiddenNHouse(n, commandBuilder) {
         return commands;
       }
 
-      // console.log(house);
-      // console.log(x);
-      // console.log(combo);
-      // console.log(otherCellIndices);
-      // console.log(subsetBits, uniqueBits);
-      // throw new Error();
-
-      // if any other cell has any subset of the subset, then we cannot do anything
-      // const otherCellIndices = indices.filter(i => combo.indexOf(i) === -1);
-      // if (otherCellIndices.some(i => house[i] & subsetBits !== 0)) {
-      //   return commands;
-      // }
-
-      const setToSubset = modifyCell(uniqueBits);
+      // we remove all other marks that are not the unique bits
+      const removeAllOtherMarks = removeMarks(~uniqueBits);
 
       return commands.concat(combo.map(y => {
-        // console.log(x, y, (uniqueBits >> 4), lengthOfSubset(uniqueBits), combo);
-        return commandBuilder(x)(y)(setToSubset);
+        return commandBuilder(x)(y)(removeAllOtherMarks);
       }));
     }, []);
   };
@@ -579,14 +457,11 @@ function hiddenN(n, puzzle) {
   const colRowReducer = hiddenNHouse(n, commandForColRow);
   const crCommands = houses.cols.map(colRowReducer).reduce((a, c) => a.concat(c), []);
 
-  // console.log(rcCommands);
-  // throw new Error();
-// return rcCommands;
   return bCommands.concat(rcCommands).concat(crCommands);
 }
 
 function hidden(puzzle) {
-  const supportedLevels = [1]; // [1, 2, 3, 4]
+  const supportedLevels = [1, 2, 3, 4];
   return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
 }
 
