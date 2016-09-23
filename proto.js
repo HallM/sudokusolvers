@@ -46,7 +46,7 @@ const startingPuzzle = [
 ];
 
 const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-const optimizers = [loneSingle, hidden];
+const optimizers = [loneSingle, naked, hidden];
 
 // generate a table of "lengths" of any bitfield subset
 const subsetLengthTable = function generateSubsetLengthTable() {
@@ -416,6 +416,23 @@ function commandForBlock(block) {
   };
 }
 
+function mapToAllHouses(fn) {
+  return function(n, puzzle) {
+    const houses = getAllHouses(puzzle);
+
+    const blockReducer = fn(n, commandForBlock);
+    const bCommands = houses.blocks.map(blockReducer).reduce((a, c) => a.concat(c), []);
+
+    const rowColReducer = fn(n, commandForRowCol);
+    const rcCommands = houses.rows.map(rowColReducer).reduce((a, c) => a.concat(c), []);
+
+    const colRowReducer = fn(n, commandForColRow);
+    const crCommands = houses.cols.map(colRowReducer).reduce((a, c) => a.concat(c), []);
+
+    return bCommands.concat(rcCommands).concat(crCommands);
+  };
+}
+
 function hiddenNHouse(n, commandBuilder) {
   return function(house, x) {
     const unfilledCells = indices.filter(i => house[i] > 9);
@@ -444,24 +461,46 @@ function hiddenNHouse(n, commandBuilder) {
     }, []);
   };
 }
-
-function hiddenN(n, puzzle) {
-  const houses = getAllHouses(puzzle);
-
-  const blockReducer = hiddenNHouse(n, commandForBlock);
-  const bCommands = houses.blocks.map(blockReducer).reduce((a, c) => a.concat(c), []);
-
-  const rowColReducer = hiddenNHouse(n, commandForRowCol);
-  const rcCommands = houses.rows.map(rowColReducer).reduce((a, c) => a.concat(c), []);
-
-  const colRowReducer = hiddenNHouse(n, commandForColRow);
-  const crCommands = houses.cols.map(colRowReducer).reduce((a, c) => a.concat(c), []);
-
-  return bCommands.concat(rcCommands).concat(crCommands);
-}
+const hiddenN = mapToAllHouses(hiddenNHouse);
 
 function hidden(puzzle) {
   const supportedLevels = [1, 2, 3, 4];
+  return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
+}
+
+function nakedNHouse(n, commandBuilder) {
+  return function(house, x) {
+    const unfilledCells = indices.filter(i => house[i] > 9);
+
+    const combinations = generateCombinations(n, unfilledCells);
+    return combinations.reduce((commands, combo) => {
+      // check length of marks in the first
+      const nakedMarks = house[combo[0]];
+      if (lengthOfSubset(nakedMarks) !== n) {
+        return commands;
+      }
+
+      // check if all cells in the combination have the exact same marks
+      if (!combo.every(v => house[v] === nakedMarks)) {
+        return commands;
+      }
+
+      // then we can remove these marks from all other cells
+      const otherCellIndices = unfilledCells.filter(i => combo.indexOf(i) === -1);
+
+      const removeNakedMarks = removeMarks(nakedMarks);
+
+      return commands.concat(otherCellIndices.map(y => {
+        return commandBuilder(x)(y)(removeNakedMarks);
+      }));
+    }, []);
+  };
+}
+const nakedN = mapToAllHouses(nakedNHouse);
+
+function naked(puzzle) {
+  // N=1 is a special case handled by loneSingle
+  const supportedLevels = [2, 3, 4];
   return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
 }
 
