@@ -46,7 +46,7 @@ const startingPuzzle = [
 ];
 
 const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-const optimizers = [loneSingle, naked, hidden];
+const optimizers = [loneSingle, naked, hidden, omission];
 
 // generate a table of "lengths" of any bitfield subset
 const subsetLengthTable = function generateSubsetLengthTable() {
@@ -219,7 +219,7 @@ function getAllHouses(puzzle) {
 function modifyCell(newValue, row, col, puzzle) {
   // this is an invalid case. either bug or an invalid puzzle
   if (newValue === 0) {
-    throw new Error(['tried to set 0', row, col, newValue, puzzle[row][col]].join(', '));
+    throw new Error(['tried to set 0 at:', row, col, newValue, puzzle[row][col]].join(', '));
   }
 
   // if nothing changes, just return the puzzle
@@ -280,11 +280,15 @@ function assign(value) {
 
 // reducing removes possibles (marks) from a location
 function removeMarks(marksToRemove) {
+  if (marksToRemove === ALL) {
+    throw new Error('Cannot remove all marks from a cell');
+  }
+
   return function(row, col) {
     return function(puzzle) {
       // erases pencil marks if it exists, otherwise nothing happens
       const inverseMarks = ~marksToRemove;
-      const safeInverseMarks = (inverseMarks | 0xF) & 0xFFFF;
+      const safeInverseMarks = (inverseMarks | 0xF) & 0x1FFF;
 
       const newValue = puzzle[row][col] & safeInverseMarks;
       return modifyCell(newValue, row, col, puzzle);
@@ -359,34 +363,7 @@ function removeMarks(marksToRemove) {
 
 */
 
-function loneSingle(puzzle) {
-  return puzzle.reduce((commands, values, row) => {
-    return values.reduce((commands, value, col) => {
-      switch (value) {
-        case ONE:
-          return commands.concat(assign(1)(row, col));
-        case TWO:
-          return commands.concat(assign(2)(row, col));
-        case THREE:
-          return commands.concat(assign(3)(row, col));
-        case FOUR:
-          return commands.concat(assign(4)(row, col));
-        case FIVE:
-          return commands.concat(assign(5)(row, col));
-        case SIX:
-          return commands.concat(assign(6)(row, col));
-        case SEVEN:
-          return commands.concat(assign(7)(row, col));
-        case EIGHT:
-          return commands.concat(assign(8)(row, col));
-        case NINE:
-          return commands.concat(assign(9)(row, col));
-        default:
-          return commands;
-      }
-    }, commands);
-  }, []);
-}
+/* Algorithm Helpers */
 
 function generateCombinations(n, house) {
   if (n === 0) {
@@ -423,11 +400,11 @@ function commandForBlock(block) {
   };
 }
 
-function mapToAllHouses(fn) {
+function mapToAllHouses(fn, fnBlockOptional) {
   return function(n, puzzle) {
     const houses = getAllHouses(puzzle);
 
-    const blockReducer = fn(n, commandForBlock);
+    const blockReducer = (fnBlockOptional || fn)(n, commandForBlock);
     const bCommands = houses.blocks.map(blockReducer).reduce((a, c) => a.concat(c), []);
 
     const rowColReducer = fn(n, commandForRowCol);
@@ -440,17 +417,59 @@ function mapToAllHouses(fn) {
   };
 }
 
+function commonSubsetInGroup(group, house) {
+  // skips over filled cells
+  return group.reduce((p, v) => house[v] > 9 ? (p & house[v]) : p, ALL) & 0x1FF0;
+}
+
+function uniqueSubsetInCells(subsetBits, otherCellIndices, house) {
+  return otherCellIndices.reduce((p, v) => house[v] > 9 ? (p & (~house[v])) : p, subsetBits) & 0x1FF0;
+}
+
+/* Lone Single (Naked-1) */
+
+function loneSingle(puzzle) {
+  return puzzle.reduce((commands, values, row) => {
+    return values.reduce((commands, value, col) => {
+      switch (value) {
+        case ONE:
+          return commands.concat(assign(1)(row, col));
+        case TWO:
+          return commands.concat(assign(2)(row, col));
+        case THREE:
+          return commands.concat(assign(3)(row, col));
+        case FOUR:
+          return commands.concat(assign(4)(row, col));
+        case FIVE:
+          return commands.concat(assign(5)(row, col));
+        case SIX:
+          return commands.concat(assign(6)(row, col));
+        case SEVEN:
+          return commands.concat(assign(7)(row, col));
+        case EIGHT:
+          return commands.concat(assign(8)(row, col));
+        case NINE:
+          return commands.concat(assign(9)(row, col));
+        default:
+          return commands;
+      }
+    }, commands);
+  }, []);
+}
+
+/* HiddenN */
+
 function hiddenNHouse(n, commandBuilder) {
   return function(house, x) {
     const unfilledCells = indices.filter(i => house[i] > 9);
 
     const combinations = generateCombinations(n, unfilledCells);
     return combinations.reduce((commands, combo) => {
-      const subsetBits = combo.reduce((p, v) => p & house[v], ALL);
+      const subsetBits = commonSubsetInGroup(combo, house);
 
       // determine if there is a unique portion of this subset
       const otherCellIndices = unfilledCells.filter(i => combo.indexOf(i) === -1);
-      const uniqueBits = otherCellIndices.reduce((p, v) => p & (~house[v]), subsetBits);
+      const uniqueBits = uniqueSubsetInCells(subsetBits, otherCellIndices, house);
 
       // if that unique portion is length N...
 
@@ -474,6 +493,8 @@ function hidden(puzzle) {
   const supportedLevels = [1, 2, 3, 4];
   return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
 }
+
+/* NakedN */
 
 function nakedNHouse(n, commandBuilder) {
   return function(house, x) {
@@ -510,6 +531,117 @@ function naked(puzzle) {
   const supportedLevels = [2, 3, 4];
   return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
 }
+
+/* Omission */
+
+function filterFromBlockRowCols(blockRowCols) {
+  return function(rows, cols) {
+    return blockRowCols.filter(v => rows.indexOf(v[0]) === -1 || cols.indexOf(v[1]) === -1);
+  };
+}
+
+function omissionRowOrCol(n, commandBuilder) {
+  return function(house, x) {
+    // look at the row/col in groups of 3 (belong to same block)
+    const cellGroups = [0, 1, 2].map(i => indices.slice(i*3, (i*3)+3));
+
+    return cellGroups.reduce((commands, combo) => {
+      // get the common subset of these
+      const subsetBits = commonSubsetInGroup(combo, house);
+
+      // if a mark is unique to those 3 and not other cells in the row/col
+      const otherCellIndices = indices.filter(i => combo.indexOf(i) === -1);
+      // TODO: we should be able to factor this out
+      const uniqueBits = uniqueSubsetInCells(subsetBits, otherCellIndices, house);
+
+      if (subsetBits <= 9 || subsetBits >= ALL || subsetBits !== uniqueBits) {
+        return commands;
+      }
+
+      // we will remove the subset of marks from the rest of the block
+      const removeOmissionMarks = removeMarks(subsetBits);
+
+      // get the block of that row
+      // using commandbuilder here, because it gets the row/col the order we need it
+      const block = commandBuilder(x)(combo[0])(getBlockForRowCol);
+
+      // get all indices of the block
+      const blockIndices = getAllBlockRowCols(block);
+
+      // filter out the ones not in the row
+      // using array of rows/cols instead of just a single row/col
+      const otherBlockCells = commandBuilder([x])(combo)(filterFromBlockRowCols(blockIndices));
+
+      // remove the mark from those cells
+      return commands.concat(otherBlockCells.map(v => removeOmissionMarks(v[0], v[1])));
+    }, []);
+  };
+}
+
+function omissionBlock(n, commandBuilder) {
+  return function(house, block) {
+    // look at the block based on rows (first 3, then next set...)
+    // if a mark is unique to those 3 and not other cells in the block
+    // then remove that mark from the rest of that row
+    const cellsGroupedByRows = [0, 1, 2].map(i => indices.slice(i*3, (i*3)+3));
+    const commandsForRow = cellsGroupedByRows.reduce((commands, combo) => {
+      const subsetBits = commonSubsetInGroup(combo, house);
+      const otherCellIndices = indices.filter(i => combo.indexOf(i) === -1);
+      const uniqueBits = uniqueSubsetInCells(subsetBits, otherCellIndices, house);
+
+      if (subsetBits <= 9 || subsetBits >= ALL || subsetBits !== uniqueBits) {
+        return commands;
+      }
+
+      const removeOmissionMarks = removeMarks(subsetBits);
+
+      const [row, leftcol] = blockIndexToRowCol(block, combo[0]);
+      const rightcol = leftcol + 2; // 2 for an inclusive 0..2, 3..5, 6..8
+
+      const rowColIndicesToChange = indices.filter(i => i < leftcol || i > rightcol);
+
+      return commands.concat(rowColIndicesToChange.map(y => {
+        return removeOmissionMarks(row, y);
+      }));
+    }, []);
+
+    // now for cols
+    // look at the block based on cols (not as clean to split)
+    // if a mark is unique to those 3 and not other cells in the block
+    // then remove that mark from the rest of that col
+    const cellsGroupedByCols = [0, 1, 2].map(c => [0, 1, 2].map(r => indices[(r*3)+c]));
+    const commandsForCol = cellsGroupedByCols.reduce((commands, combo) => {
+      const subsetBits = commonSubsetInGroup(combo, house);
+      const otherCellIndices = indices.filter(i => combo.indexOf(i) === -1);
+      const uniqueBits = uniqueSubsetInCells(subsetBits, otherCellIndices, house);
+
+      if (subsetBits <= 9 || subsetBits >= ALL|| subsetBits !== uniqueBits) {
+        return commands;
+      }
+
+      const removeOmissionMarks = removeMarks(subsetBits);
+
+      const [toprow, col] = blockIndexToRowCol(block, combo[0]);
+      const bottomrow = toprow + 2; // 2 for an inclusive 0..2, 3..5, 6..8
+
+      const colRowIndicesToChange = indices.filter(i => i < toprow || i > bottomrow);
+
+      return commands.concat(colRowIndicesToChange.map(y => {
+        return removeOmissionMarks(y, col);
+      }));
+    }, []);
+
+    return commandsForRow.concat(commandsForCol);
+  };
+}
+
+const omissionHouses = mapToAllHouses(omissionRowOrCol, omissionBlock);
+
+function omission(puzzle) {
+  return omissionHouses(1, puzzle);
+}
+
+/* Now to just run the solver */
 
 const myPuzzle = start(emptyPuzzle, startingPuzzle);
 const [error, result] = solve(myPuzzle);
