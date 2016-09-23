@@ -217,18 +217,25 @@ function getAllHouses(puzzle) {
 // by nature of setting values, it cannot be executed out of order
 // unlike assign/removeMarks, it cannot be a command
 function modifyCell(newValue, row, col, puzzle) {
+  // this is an invalid case. either bug or an invalid puzzle
   if (newValue === 0) {
     throw new Error(['tried to set 0', row, col, newValue, puzzle[row][col]].join(', '));
   }
 
+  // if nothing changes, just return the puzzle
   if (puzzle[row][col] === newValue) {
     return puzzle;
   }
 
   return puzzle.map((values, r) => {
-    return values.map((oldValue, c) => {
+    // we can share parts of the puzzle to reduce allocations
+    if (r !== row) {
+      return values;
+    }
 
-      return r == row && c == col ? newValue : oldValue;
+    // only allocate a new row if any part of the row changed
+    return values.map((oldValue, c) => {
+      return c === col ? newValue : oldValue;
     });
   });
 }
