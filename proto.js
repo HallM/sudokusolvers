@@ -10,6 +10,9 @@ const SEVEN = 1 << 10;
 const EIGHT = 1 << 11;
 const NINE = 1 << 12;
 
+// console.log(ONE, TWO, THREE, FOUR, FIVE)
+// console.log(SIX, SEVEN, EIGHT, NINE)
+
 const ALL = ONE | TWO | THREE | FOUR | FIVE | SIX | SEVEN | EIGHT | NINE;
 
 const emptyPuzzle = [
@@ -109,7 +112,7 @@ function solve(start) {
   var puzzle = start;
   console.log('start');
   while (1) {
-    // printSolveProgress(puzzle);
+    printSolveProgress(puzzle);
     console.log('iteration');
     const reduced = doReductions(puzzle);
 
@@ -140,8 +143,10 @@ function isSolved(puzzle) {
 }
 
 function checkConsistency(puzzle) {
-  return puzzle.reduce((b, values) => {
-    return values.reduce((b, value) => {
+  return puzzle.reduce((b, values, row) => {
+    return values.reduce((b, value, col) => {
+      if (value === 0)
+        console.log(row, col, value);
       return b && (value > 0);
     }, b);
   }, true);
@@ -216,10 +221,20 @@ function getAllHouses(puzzle) {
 // TODO: right now this is a helper, but...
 // could all other commands "reduce" into just modify cell commands?
 function modifyCell(newValue) {
+  if (newValue === 0)
+    throw new Error('tried to set value to 0');
+
   return function(row, col) {
     return function(puzzle) {
+      if (puzzle[row][col] === newValue) {
+        return puzzle;
+      }
+
       return puzzle.map((values, r) => {
         return values.map((oldValue, c) => {
+          if (newValue === 0)
+            throw new Error(['modify', row, col, newValue, oldValue].join(', '));
+
           return r == row && c == col ? newValue : oldValue;
         });
       });
@@ -239,6 +254,7 @@ function assign(value) {
   return function(row, col) {
     return function(puzzle) {
       // will erase all pencil marks as well
+      // console.log('assign ', value, row, col);
       const changedPuzzle = modifyCell(value)(row, col)(puzzle);
 
       const mark = valueToMark(value);
@@ -271,6 +287,10 @@ function removeMarks(marksToRemove) {
     return function(puzzle) {
       // erases pencil marks if it exists, otherwise nothing happens
       const newValue = puzzle[row][col] & (~marksToRemove);
+      if (newValue === 0) {
+        console.log(row, col, puzzle[row][col], marksToRemove, ~marksToRemove);
+      }
+
       return modifyCell(newValue)(row, col)(puzzle);
     }
   }
@@ -507,24 +527,40 @@ function commandForBlock(block) {
 
 function hiddenNHouse(n, commandBuilder) {
   return function(house, x) {
-    const combinations = generateCombinations(n, indices);
+    const unfilledCells = indices.filter(i => house[i] > 9);
+
+    const combinations = generateCombinations(n, unfilledCells);
     return combinations.reduce((commands, combo) => {
       const subsetBits = combo.reduce((p, v) => p & house[v], ALL);
+
+      // determine if there is a unique portion of this subset
+      const otherCellIndices = unfilledCells.filter(i => combo.indexOf(i) === -1);
+      const uniqueBits = otherCellIndices.reduce((p, v) => p & (~house[v]), subsetBits);
+
+      // if that unique portion is length N...
+
       // if the length of the subset is not N, then it's not a hiddenN
-      if (lengthOfSubset(subsetBits) !== n) {
+      if (lengthOfSubset(uniqueBits) !== n) {
         return commands;
       }
+
+      // console.log(house);
+      // console.log(x);
+      // console.log(combo);
+      // console.log(otherCellIndices);
+      // console.log(subsetBits, uniqueBits);
+      // throw new Error();
 
       // if any other cell has any subset of the subset, then we cannot do anything
-      const otherCellIndices = indices.filter(i => combo.indexOf(i) === -1);
-      if (otherCellIndices.some(i => house[i] & subsetBits !== 0)) {
-        return commands;
-      }
+      // const otherCellIndices = indices.filter(i => combo.indexOf(i) === -1);
+      // if (otherCellIndices.some(i => house[i] & subsetBits !== 0)) {
+      //   return commands;
+      // }
 
-      const setToSubset = modifyCell(subsetBits);
+      const setToSubset = modifyCell(uniqueBits);
 
       return commands.concat(combo.map(y => {
-        console.log(x, y, (subsetBits >> 4), lengthOfSubset(subsetBits), combo);
+        // console.log(x, y, (uniqueBits >> 4), lengthOfSubset(uniqueBits), combo);
         return commandBuilder(x)(y)(setToSubset);
       }));
     }, []);
@@ -534,19 +570,19 @@ function hiddenNHouse(n, commandBuilder) {
 function hiddenN(n, puzzle) {
   const houses = getAllHouses(puzzle);
 
-  // const blockReducer = hiddenNHouse(n, commandForBlock);
-  // const bCommands = houses.blocks.map(blockReducer).reduce((a, c) => a.concat(c), []);
+  const blockReducer = hiddenNHouse(n, commandForBlock);
+  const bCommands = houses.blocks.map(blockReducer).reduce((a, c) => a.concat(c), []);
 
   const rowColReducer = hiddenNHouse(n, commandForRowCol);
   const rcCommands = houses.rows.map(rowColReducer).reduce((a, c) => a.concat(c), []);
 
-  // const colRowReducer = hiddenNHouse(n, commandForColRow);
-  // const crCommands = houses.cols.map(colRowReducer).reduce((a, c) => a.concat(c), []);
+  const colRowReducer = hiddenNHouse(n, commandForColRow);
+  const crCommands = houses.cols.map(colRowReducer).reduce((a, c) => a.concat(c), []);
 
-  console.log(rcCommands);
-  throw new Error();
-
-  // return bCommands.concat(rcCommands).concat(crCommands);
+  // console.log(rcCommands);
+  // throw new Error();
+// return rcCommands;
+  return bCommands.concat(rcCommands).concat(crCommands);
 }
 
 function hidden(puzzle) {
