@@ -399,47 +399,6 @@ function removeMarks(marksToRemove) {
     and repeating a command has no effect.
 
   Algorithms:
-  - Lone Single: (this is a specialized Naked-1)
-    Any cell with a single mark must be that value
-
-  - Naked-N: (only processing where N is 2..4 inclusive)
-    N number of cells in a house have only the exact same N-length subset of pencil marks.
-    In this case, all other cells can remove all N elements
-    Collect information about cells in a house with shared pencil marks (just check bit-mark equality)
-    For each set less than 4, count the set bits of the shared mark bitfield
-      If the number of set bits is equal to the number of items in the set:
-        Then remove all marks from all others in the house (cell = cell & (~sharedMarkedBits))
-      Otherwise, skip
-
-  - Hidden-N: (only processing where N is 1..4 inclusive)
-    Only N-number of cells in a house contain the same N-length subset of pencil marks.
-    In this case, all other marks in these N cells may be removed
-    Find the common subset between N-length combinations (use bitwise AND)
-    Determine the unique portion of that subset (using bitwise AND, NEG the other cell)
-    If the length of the unique subset is equal to N
-      then all cells in the combination may set the marks in the unique subset
-
-  - Omissions:
-    If a block-house can prove a number must be in a row or col,
-    then the rest of the row or col can omit that pencil mark
-    If a row/col-house can prove a number must be in a block,
-    then the rest of the block can omit that pencil mark
-    More generally:
-    Suppose a sub-house is a subset of house A and house B,
-    If this subset is the only set which may contain a set of pencil marks in house A,
-    then house B may omit that set of pencil marks from all other cells which are not in the subset
-    For each row:
-      if particular mark occurs only inside a single block:
-        then the rest of that block can unmark that number
-    For each col: (same thing really)
-      if particular mark occurs only inside a single block:
-        then the rest of that block can unmark that number
-    For each block:
-      if a mark occurs only in a single row:
-        then the rest of that row can unmark that number
-      if a mark occurs only in a single col:
-        then the rest of that col can unmark that number
-
 
   - Basic fish-N:
     N number of rows/cols contain a pencil mark N times
@@ -448,6 +407,13 @@ function removeMarks(marksToRemove) {
     Note: do not remove the candidate from all cells, only the ones in the "cover-house" col/row
 
   - X-Wing
+    For each row:
+      Look if a number occurs exactly twice
+      For all next rows:
+        Check if that number occurs exactly twice in the same columns
+        If so, then remove all other instances of the number from both columns
+    Do the same for columns as the rows
+
   - Swordfish
   - XY-Wing
   - Unique Rectangle
@@ -517,7 +483,10 @@ function uniqueSubsetInCells(subsetBits, otherCellIndices, house) {
   return otherCellIndices.reduce((p, v) => house[v] > 9 ? (p & (~house[v])) : p, subsetBits) & 0x1FF0;
 }
 
-/* Lone Single (Naked-1) */
+/*
+  Lone Single: (this is a specialized Naked-1)
+  Any cell with a single mark must be that value
+*/
 
 function loneSingle(puzzle) {
   return puzzle.reduce((commands, values, row) => {
@@ -548,7 +517,15 @@ function loneSingle(puzzle) {
   }, []);
 }
 
-/* HiddenN */
+/*
+  Hidden-N: (only processing where N is 1..4 inclusive)
+  Only N-number of cells in a house contain the same N-length subset of pencil marks.
+  In this case, all other marks in these N cells may be removed
+  Find the common subset between N-length combinations (use bitwise AND)
+  Determine the unique portion of that subset (using bitwise AND, NEG the other cell)
+  If the length of the unique subset is equal to N
+    then all cells in the combination may set the marks in the unique subset
+*/
 
 function hiddenNHouse(n, commandBuilder) {
   return function(house, x) {
@@ -586,7 +563,16 @@ function hidden(puzzle) {
   return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
 }
 
-/* NakedN */
+/*
+  Naked-N: (only processing where N is 2..4 inclusive)
+  N number of cells in a house have only the exact same N-length subset of pencil marks.
+  In this case, all other cells can remove all N elements
+  Collect information about cells in a house with shared pencil marks (just check bit-mark equality)
+  For each set less than 4, count the set bits of the shared mark bitfield
+    If the number of set bits is equal to the number of items in the set:
+      Then remove all marks from all others in the house (cell = cell & (~sharedMarkedBits))
+    Otherwise, skip
+*/
 
 function nakedNHouse(n, commandBuilder) {
   return function(house, x) {
@@ -624,7 +610,28 @@ function naked(puzzle) {
   return supportedLevels.reduce((c, v) => c.concat(hiddenN(v, puzzle)), []);
 }
 
-/* Omission */
+/*
+  Omissions:
+  If a block-house can prove a number must be in a row or col,
+  then the rest of the row or col can omit that pencil mark
+  If a row/col-house can prove a number must be in a block,
+  then the rest of the block can omit that pencil mark
+  More generally:
+  Suppose a sub-house is a subset of house A and house B,
+  If this subset is the only set which may contain a set of pencil marks in house A,
+  then house B may omit that set of pencil marks from all other cells which are not in the subset
+  For each row:
+    if particular mark occurs only inside a single block:
+      then the rest of that block can unmark that number
+  For each col: (same thing really)
+    if particular mark occurs only inside a single block:
+      then the rest of that block can unmark that number
+  For each block:
+    if a mark occurs only in a single row:
+      then the rest of that row can unmark that number
+    if a mark occurs only in a single col:
+      then the rest of that col can unmark that number
+*/
 
 function filterFromBlockRowCols(blockRowCols) {
   return function(rows, cols) {
